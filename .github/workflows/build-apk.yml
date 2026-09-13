@@ -1,11 +1,11 @@
-name: Build ElinaAI V17
+name: Build ElinaAI V18
 
 on:
   workflow_dispatch:
 
   push:
     paths:
-      - "ElinaAi2.0-fixed-v17.zip"
+      - "ElinaAi2.0-fixed-v18.zip"
       - ".github/workflows/build-apk.yml"
 
 permissions:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build:
-    name: Build ElinaAI v5.2.0
+    name: Build ElinaAI v5.3.0
     runs-on: ubuntu-latest
 
     steps:
@@ -26,27 +26,21 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Verify V17 ZIP
+      - name: Verify V18 ZIP
         shell: bash
         run: |
           set -e
 
-          ZIP_FILE="ElinaAi2.0-fixed-v17.zip"
-
-          echo "Checking ZIP..."
+          ZIP_FILE="ElinaAi2.0-fixed-v18.zip"
 
           if [ ! -f "$ZIP_FILE" ]; then
             echo "ERROR: $ZIP_FILE not found."
-            echo ""
-            echo "Repository files:"
-            find . -maxdepth 3 -type f -print
             exit 1
           fi
 
-          echo "Found:"
           ls -lh "$ZIP_FILE"
 
-      - name: Extract V17
+      - name: Extract V18
         shell: bash
         run: |
           set -e
@@ -54,10 +48,7 @@ jobs:
           rm -rf extracted
           mkdir -p extracted
 
-          echo "Extracting V17..."
-          unzip -q "ElinaAi2.0-fixed-v17.zip" -d extracted
-
-          echo "Extraction complete."
+          unzip -q "ElinaAi2.0-fixed-v18.zip" -d extracted
 
       - name: Locate Android project
         shell: bash
@@ -77,101 +68,40 @@ jobs:
 
           if [ -z "$PROJECT_DIR" ]; then
             echo "ERROR: Android project not found."
-            echo ""
-            echo "Extracted files:"
             find extracted -maxdepth 7 -type f -print
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Android project:"
-          echo "$PROJECT_DIR"
-
-      - name: Validate Android project
+      - name: Validate project
         shell: bash
         run: |
           set -e
 
-          echo "Validating project..."
-
           test -f "$PROJECT_DIR/gradlew"
-          test -d "$PROJECT_DIR/app"
           test -f "$PROJECT_DIR/settings.gradle.kts"
           test -f "$PROJECT_DIR/build.gradle.kts"
           test -f "$PROJECT_DIR/app/build.gradle.kts"
           test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+          test -f "$PROJECT_DIR/app/src/main/assets/avatar/model.vrm"
 
           chmod +x "$PROJECT_DIR/gradlew"
 
-          echo "Project validation passed."
-
-      - name: Verify Elina VRM
+      - name: Verify release signing
         shell: bash
         run: |
           set -e
 
-          VRM_FILE="$PROJECT_DIR/app/src/main/assets/avatar/model.vrm"
+          grep -q 'signingConfig = signingConfigs.getByName("debug")' \
+            "$PROJECT_DIR/app/build.gradle.kts"
 
-          if [ ! -f "$VRM_FILE" ]; then
-            echo "ERROR: model.vrm not found:"
-            echo "$VRM_FILE"
-            echo ""
-            echo "Avatar directory:"
-            find "$PROJECT_DIR/app/src/main/assets/avatar" \
-              -maxdepth 2 \
-              -type f \
-              -print
-            exit 1
-          fi
-
-          echo "VRM found:"
-          ls -lh "$VRM_FILE"
-
-      - name: Verify release signing configuration
-        shell: bash
-        run: |
-          set -e
-
-          echo "Checking release signing configuration..."
-
-          if grep -q 'signingConfig = signingConfigs.getByName("debug")' \
-            "$PROJECT_DIR/app/build.gradle.kts"; then
-
-            echo "Release APK uses debug signing configuration."
-          else
-            echo "ERROR: Expected release signing configuration was not found."
-            echo ""
-            grep -n -A12 -B4 "buildTypes" \
-              "$PROJECT_DIR/app/build.gradle.kts" || true
-            exit 1
-          fi
-
-      - name: Show Java version
-        shell: bash
-        run: |
-          java -version
-
-      - name: Show Gradle wrapper
-        shell: bash
-        run: |
-          cd "$PROJECT_DIR"
-
-          echo "Gradle wrapper:"
-          ls -lh gradlew
-
-          echo ""
-          echo "Gradle wrapper properties:"
-          cat gradle/wrapper/gradle-wrapper.properties
-
-      - name: Build signed release APK
+      - name: Build release APK
         shell: bash
         run: |
           set -e
 
           cd "$PROJECT_DIR"
-
-          echo "Building ElinaAI release APK..."
 
           ./gradlew assembleRelease \
             --no-daemon \
@@ -184,81 +114,47 @@ jobs:
 
           APK_DIR="$PROJECT_DIR/app/build/outputs/apk/release"
 
-          if [ ! -d "$APK_DIR" ]; then
-            echo "ERROR: APK output directory not found."
-            exit 1
-          fi
-
-          APK_COUNT=$(find "$APK_DIR" \
+          COUNT=$(find "$APK_DIR" \
             -maxdepth 1 \
             -type f \
             -name "*.apk" | wc -l)
 
-          echo "APK count: $APK_COUNT"
+          echo "APK count: $COUNT"
 
-          if [ "$APK_COUNT" -ne 1 ]; then
+          if [ "$COUNT" -ne 1 ]; then
             echo "ERROR: Expected exactly ONE APK."
-
-            echo ""
-            echo "APK files found:"
-            find "$APK_DIR" \
-              -maxdepth 1 \
-              -type f \
-              -name "*.apk" \
-              -print
-
+            find "$APK_DIR" -maxdepth 1 -type f -print
             exit 1
           fi
 
-          APK_FILE=$(find "$APK_DIR" \
+          APK=$(find "$APK_DIR" \
             -maxdepth 1 \
             -type f \
             -name "*.apk" \
             -print -quit)
 
-          echo ""
-          echo "APK generated:"
-          ls -lh "$APK_FILE"
+          echo "APK=$APK" >> "$GITHUB_ENV"
 
-          echo "APK_FILE=$APK_FILE" >> "$GITHUB_ENV"
+          ls -lh "$APK"
 
-      - name: Verify APK signing
+      - name: Verify APK signature
         shell: bash
         run: |
           set -e
 
-          APK_FILE="${{ env.APK_FILE }}"
+          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" \
+            -maxdepth 1 \
+            -mindepth 1 \
+            -type d | sort -V | tail -n 1)
 
-          echo "Checking APK signing..."
+          "$BUILD_TOOLS/apksigner" verify \
+            --verbose \
+            "$APK"
 
-          if command -v apksigner >/dev/null 2>&1; then
-            apksigner verify --verbose "$APK_FILE"
-          else
-            echo "apksigner not directly available in PATH."
-
-            SDK_BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" \
-              -maxdepth 1 \
-              -mindepth 1 \
-              -type d \
-              | sort -V \
-              | tail -n 1)
-
-            if [ -z "$SDK_BUILD_TOOLS" ]; then
-              echo "ERROR: Android Build Tools not found."
-              exit 1
-            fi
-
-            "$SDK_BUILD_TOOLS/apksigner" verify \
-              --verbose \
-              "$APK_FILE"
-          fi
-
-          echo "APK signing verification passed."
-
-      - name: Upload ONE APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ElinaAI-v5.2.0
-          path: "${{ env.APK_FILE }}"
+          name: ElinaAI-v5.3.0
+          path: "${{ env.APK }}"
           if-no-files-found: error
           retention-days: 7

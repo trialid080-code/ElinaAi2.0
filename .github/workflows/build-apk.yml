@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "ElinaAi2.0-fixed-v10.zip"
+      - "ElinaAi2.0-fixed-v11.zip"
       - ".github/workflows/build-apk.yml"
 
 permissions:
@@ -29,8 +29,8 @@ jobs:
         shell: bash
         run: |
           set -e
-          test -f "ElinaAi2.0-fixed-v10.zip"
-          ls -lh "ElinaAi2.0-fixed-v10.zip"
+          test -f "ElinaAi2.0-fixed-v11.zip"
+          ls -lh "ElinaAi2.0-fixed-v11.zip"
 
       - name: Extract ZIP
         shell: bash
@@ -38,7 +38,7 @@ jobs:
           set -e
           rm -rf extracted
           mkdir -p extracted
-          unzip -q "ElinaAi2.0-fixed-v10.zip" -d extracted
+          unzip -q "ElinaAi2.0-fixed-v11.zip" -d extracted
           echo "ZIP extracted successfully"
 
       - name: Locate Android project

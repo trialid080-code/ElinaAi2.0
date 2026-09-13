@@ -1,10 +1,10 @@
-name: Build ElinaAI APK
+ name: Build ElinaAI
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - "ElinaAi2.0-fixed-v14.zip"
+      - "ElinaAi2.0-fixed-v15.zip"
       - ".github/workflows/build-apk.yml"
 
 permissions:
@@ -25,24 +25,21 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android licenses
-        run: yes | sdkmanager --licenses > /dev/null || true
-
-      - name: Verify V14 ZIP
+      - name: Verify V15 ZIP
+        shell: bash
         run: |
           set -e
-          test -f "ElinaAi2.0-fixed-v14.zip"
-          ls -lh "ElinaAi2.0-fixed-v14.zip"
+          test -f "ElinaAi2.0-fixed-v15.zip"
+          echo "V15 ZIP:"
+          ls -lh "ElinaAi2.0-fixed-v15.zip"
 
-      - name: Extract V14
+      - name: Extract V15
+        shell: bash
         run: |
           set -e
           rm -rf extracted
-          mkdir extracted
-          unzip -q "ElinaAi2.0-fixed-v14.zip" -d extracted
+          mkdir -p extracted
+          unzip -q "ElinaAi2.0-fixed-v15.zip" -d extracted
 
       - name: Locate Android project
         shell: bash
@@ -60,35 +57,67 @@ jobs:
             fi
           done < <(find extracted -type f -name "gradlew")
 
-          test -n "$PROJECT_DIR"
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android project not found"
+            find extracted -maxdepth 5 -type f -print
+            exit 1
+          fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Project: $PROJECT_DIR"
 
-      - name: Prepare Gradle
-        run: |
-          chmod +x "$PROJECT_DIR/gradlew"
-
-      - name: Build ONE release APK
-        run: |
-          cd "$PROJECT_DIR"
-          ./gradlew assembleRelease --no-daemon --stacktrace
-
-      - name: Verify exactly one APK
+      - name: Validate project
         shell: bash
         run: |
           set -e
 
-          COUNT=$(find "$PROJECT_DIR/app/build/outputs/apk/release" \
+          test -f "$PROJECT_DIR/gradlew"
+          test -d "$PROJECT_DIR/app"
+          test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+
+          chmod +x "$PROJECT_DIR/gradlew"
+
+      - name: Verify Elina VRM
+        shell: bash
+        run: |
+          set -e
+
+          test -f "$PROJECT_DIR/app/src/main/assets/avatar/elina.vrm"
+
+          echo "Elina VRM:"
+          ls -lh "$PROJECT_DIR/app/src/main/assets/avatar/elina.vrm"
+
+      - name: Build Release APK
+        shell: bash
+        run: |
+          set -e
+          cd "$PROJECT_DIR"
+
+          ./gradlew assembleRelease \
+            --no-daemon \
+            --stacktrace
+
+      - name: Verify exactly ONE APK
+        shell: bash
+        run: |
+          set -e
+
+          APK_DIR="$PROJECT_DIR/app/build/outputs/apk/release"
+
+          COUNT=$(find "$APK_DIR" \
             -maxdepth 1 \
             -type f \
             -name "*.apk" | wc -l)
 
           echo "APK count: $COUNT"
 
-          test "$COUNT" -eq 1
+          if [ "$COUNT" -ne 1 ]; then
+            echo "ERROR: Expected exactly 1 APK."
+            find "$APK_DIR" -maxdepth 1 -type f -print
+            exit 1
+          fi
 
-          find "$PROJECT_DIR/app/build/outputs/apk/release" \
+          find "$APK_DIR" \
             -maxdepth 1 \
             -type f \
             -name "*.apk" \

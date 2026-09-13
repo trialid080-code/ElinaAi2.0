@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "ElinaAi2.0-fixed-v13.zip"
+      - "ElinaAi2.0-fixed-v14.zip"
       - ".github/workflows/build-apk.yml"
 
 permissions:
@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v5
 
       - name: Setup Java 17
@@ -25,22 +25,24 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Verify V13 ZIP
-        shell: bash
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses > /dev/null || true
+
+      - name: Verify V14 ZIP
         run: |
           set -e
-          test -f "ElinaAi2.0-fixed-v13.zip"
-          echo "V13 ZIP found:"
-          ls -lh "ElinaAi2.0-fixed-v13.zip"
+          test -f "ElinaAi2.0-fixed-v14.zip"
+          ls -lh "ElinaAi2.0-fixed-v14.zip"
 
-      - name: Extract V13 ZIP
-        shell: bash
+      - name: Extract V14
         run: |
           set -e
           rm -rf extracted
-          mkdir -p extracted
-          unzip -q "ElinaAi2.0-fixed-v13.zip" -d extracted
-          echo "V13 extracted successfully"
+          mkdir extracted
+          unzip -q "ElinaAi2.0-fixed-v14.zip" -d extracted
 
       - name: Locate Android project
         shell: bash
@@ -58,78 +60,44 @@ jobs:
             fi
           done < <(find extracted -type f -name "gradlew")
 
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android project not found"
-            find extracted -maxdepth 5 -type f -print
-            exit 1
-          fi
+          test -n "$PROJECT_DIR"
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project found at: $PROJECT_DIR"
+          echo "Project: $PROJECT_DIR"
 
-      - name: Validate project
-        shell: bash
+      - name: Prepare Gradle
         run: |
-          set -e
-
-          test -f "$PROJECT_DIR/gradlew"
-          test -d "$PROJECT_DIR/app"
-          test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
-
           chmod +x "$PROJECT_DIR/gradlew"
 
-          echo "Project validation passed"
-
-      - name: Verify Elina VRM
-        shell: bash
+      - name: Build ONE release APK
         run: |
-          set -e
-
-          test -f "$PROJECT_DIR/app/src/main/assets/avatar/elina.vrm"
-
-          echo "Elina VRM found:"
-          ls -lh "$PROJECT_DIR/app/src/main/assets/avatar/elina.vrm"
-
-      - name: Build Debug APK
-        shell: bash
-        run: |
-          set -e
           cd "$PROJECT_DIR"
+          ./gradlew assembleRelease --no-daemon --stacktrace
 
-          ./gradlew assembleDebug \
-            --no-daemon \
-            --stacktrace
-
-      - name: Build Release APK
-        shell: bash
-        run: |
-          set -e
-          cd "$PROJECT_DIR"
-
-          ./gradlew assembleRelease \
-            --no-daemon \
-            --stacktrace
-
-      - name: Verify APKs
+      - name: Verify exactly one APK
         shell: bash
         run: |
           set -e
 
-          echo "===== DEBUG APK ====="
-          find "$PROJECT_DIR/app/build/outputs/apk/debug" \
-            -type f -name "*.apk" \
-            -print -exec ls -lh {} \;
+          COUNT=$(find "$PROJECT_DIR/app/build/outputs/apk/release" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.apk" | wc -l)
 
-          echo "===== RELEASE APK ====="
+          echo "APK count: $COUNT"
+
+          test "$COUNT" -eq 1
+
           find "$PROJECT_DIR/app/build/outputs/apk/release" \
-            -type f -name "*.apk" \
-            -print -exec ls -lh {} \;
+            -maxdepth 1 \
+            -type f \
+            -name "*.apk" \
+            -print \
+            -exec ls -lh {} \;
 
-      - name: Upload APKs
+      - name: Upload ONE APK
         uses: actions/upload-artifact@v4
         with:
-          name: ElinaAI-v5.2.0-v13
-          path: |
-            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
-            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
+          name: ElinaAI-v5.2.0
+          path: "${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/*.apk"
           if-no-files-found: error

@@ -26,11 +26,12 @@ jobs:
           java-version: "17"
 
       - name: Check ZIP
+        shell: bash
         run: |
           set -e
 
           if [ ! -f "ElinaAi2.0-fixed-v5.zip" ]; then
-            echo "ERROR: ElinaAi2.0-fixed-v5.zip not found"
+            echo "ERROR: ZIP file not found"
             ls -la
             exit 1
           fi
@@ -38,11 +39,12 @@ jobs:
           ls -lh "ElinaAi2.0-fixed-v5.zip"
 
       - name: Extract ZIP
+        shell: bash
         run: |
           set -e
 
           rm -rf extracted
-          mkdir extracted
+          mkdir -p extracted
 
           unzip -q "ElinaAi2.0-fixed-v5.zip" -d extracted
 
@@ -53,21 +55,34 @@ jobs:
         run: |
           set -e
 
-          PROJECT_DIR=$(find extracted -type f -name "gradlew" -print -quit | xargs -r dirname)
+          PROJECT_DIR=""
+
+          while IFS= read -r gradle_file; do
+            candidate="$(dirname "$gradle_file")"
+
+            if [ -d "$candidate/app" ]; then
+              PROJECT_DIR="$candidate"
+              break
+            fi
+          done < <(find extracted -type f -name "gradlew")
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: gradlew not found inside ZIP"
+            echo "ERROR: Android project not found"
             find extracted -maxdepth 5 -type f -print
             exit 1
           fi
 
-          if [ ! -d "$PROJECT_DIR/app" ]; then
-            echo "ERROR: app folder not found"
-            ls -la "$PROJECT_DIR"
-            exit 1
-          fi
+          echo "Android project found:"
+          echo "$PROJECT_DIR"
 
-          echo "Android project found at: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Check
+      - name: Check project files
+        shell: bash
+        run: |
+          set -e
+
+          test -f "$PROJECT_DIR/gradlew"
+          test -d "$PROJECT_DIR/app"
+
+          ls -la "$PROJECT_DIR"

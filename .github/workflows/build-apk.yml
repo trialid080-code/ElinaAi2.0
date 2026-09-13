@@ -3,6 +3,11 @@ name: Build ElinaAI
 on:
   workflow_dispatch:
 
+  push:
+    paths:
+      - "ElinaAi2.0-fixed-v15.zip"
+      - ".github/workflows/build-apk.yml"
+
 permissions:
   contents: read
 
@@ -12,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v5
 
       - name: Setup Java 17
@@ -20,18 +25,27 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
       - name: Verify V15 ZIP
         shell: bash
         run: |
           set -e
 
-          test -f "ElinaAi2.0-fixed-v15.zip"
+          echo "Checking V15 ZIP..."
 
-          echo "V15 ZIP:"
+          if [ ! -f "ElinaAi2.0-fixed-v15.zip" ]; then
+            echo "ERROR: ElinaAi2.0-fixed-v15.zip not found."
+            echo ""
+            echo "Repository files:"
+            find . -maxdepth 3 -type f -print
+            exit 1
+          fi
+
+          echo "V15 ZIP found:"
           ls -lh "ElinaAi2.0-fixed-v15.zip"
 
-      - name: Extract V15
+      - name: Extract V15 project
         shell: bash
         run: |
           set -e
@@ -39,7 +53,10 @@ jobs:
           rm -rf extracted
           mkdir -p extracted
 
+          echo "Extracting V15..."
           unzip -q "ElinaAi2.0-fixed-v15.zip" -d extracted
+
+          echo "Extraction complete."
 
       - name: Locate Android project
         shell: bash
@@ -58,54 +75,94 @@ jobs:
           done < <(find extracted -type f -name "gradlew")
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android project not found"
+            echo "ERROR: Android project not found inside V15 ZIP."
+            echo ""
+            echo "Extracted files:"
             find extracted -maxdepth 6 -type f -print
             exit 1
           fi
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-          echo "Android project:"
+          echo "Android project found:"
           echo "$PROJECT_DIR"
 
-      - name: Validate project
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Validate Android project
         shell: bash
         run: |
           set -e
 
+          echo "Validating project..."
+
           test -f "$PROJECT_DIR/gradlew"
           test -d "$PROJECT_DIR/app"
+          test -f "$PROJECT_DIR/settings.gradle.kts"
+          test -f "$PROJECT_DIR/app/build.gradle.kts"
           test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
 
           chmod +x "$PROJECT_DIR/gradlew"
+
+          echo "Project validation passed."
 
       - name: Verify Elina VRM
         shell: bash
         run: |
           set -e
 
-          test -f "$PROJECT_DIR/app/src/main/assets/avatar/model.vrm"
+          VRM_FILE="$PROJECT_DIR/app/src/main/assets/avatar/model.vrm"
 
-          echo "Elina VRM:"
-          ls -lh "$PROJECT_DIR/app/src/main/assets/avatar/model.vrm"
+          if [ ! -f "$VRM_FILE" ]; then
+            echo "ERROR: Elina VRM not found:"
+            echo "$VRM_FILE"
+            echo ""
+            echo "Avatar directory contents:"
+            find "$PROJECT_DIR/app/src/main/assets/avatar" \
+              -maxdepth 2 \
+              -type f \
+              -print
+            exit 1
+          fi
 
-      - name: Build Release APK
+          echo "Elina VRM found:"
+          ls -lh "$VRM_FILE"
+
+      - name: Show Gradle and Java versions
+        shell: bash
+        run: |
+          set -e
+
+          echo "Java:"
+          java -version
+
+          echo ""
+          echo "Gradle:"
+          cd "$PROJECT_DIR"
+          ./gradlew --version
+
+      - name: Build release APK
         shell: bash
         run: |
           set -e
 
           cd "$PROJECT_DIR"
 
+          echo "Starting release build..."
+
           ./gradlew assembleRelease \
             --no-daemon \
             --stacktrace
 
-      - name: Verify exactly ONE APK
+      - name: Verify release APK
         shell: bash
         run: |
           set -e
 
           APK_DIR="$PROJECT_DIR/app/build/outputs/apk/release"
+
+          if [ ! -d "$APK_DIR" ]; then
+            echo "ERROR: Release APK directory does not exist."
+            exit 1
+          fi
 
           COUNT=$(find "$APK_DIR" \
             -maxdepth 1 \
@@ -115,4 +172,38 @@ jobs:
           echo "APK count: $COUNT"
 
           if [ "$COUNT" -ne 1 ]; then
-            echo "ERROR: Expected
+            echo "ERROR: Expected exactly ONE release APK."
+            echo ""
+            echo "APK files found:"
+            find "$APK_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.apk" \
+              -print
+
+            exit 1
+          fi
+
+          APK_FILE=$(find "$APK_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.apk" \
+            -print -quit)
+
+          echo ""
+          echo "Release APK:"
+          ls -lh "$APK_FILE"
+
+          echo ""
+          echo "APK path:"
+          echo "$APK_FILE"
+
+          echo "APK_FILE=$APK_FILE" >> "$GITHUB_ENV"
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ElinaAI-v5.2.0
+          path: "${{ env.APK_FILE }}"
+          if-no-files-found: error
+          retention-days: 7

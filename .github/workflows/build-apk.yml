@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "ElinaAi2.0-fixed-v5.zip"
+      - "ElinaAi2.0-fixed-v6.zip"
       - ".github/workflows/build-apk.yml"
 
 permissions:
@@ -29,8 +29,8 @@ jobs:
         shell: bash
         run: |
           set -e
-          test -f "ElinaAi2.0-fixed-v5.zip"
-          ls -lh "ElinaAi2.0-fixed-v5.zip"
+          test -f "ElinaAi2.0-fixed-v6.zip"
+          ls -lh "ElinaAi2.0-fixed-v6.zip"
 
       - name: Extract ZIP
         shell: bash
@@ -38,7 +38,7 @@ jobs:
           set -e
           rm -rf extracted
           mkdir -p extracted
-          unzip -q "ElinaAi2.0-fixed-v5.zip" -d extracted
+          unzip -q "ElinaAi2.0-fixed-v6.zip" -d extracted
           echo "ZIP extracted successfully"
 
       - name: Locate Android project
@@ -46,8 +46,10 @@ jobs:
         run: |
           set -e
           PROJECT_DIR=""
+
           while IFS= read -r gradle_file; do
             candidate="$(dirname "$gradle_file")"
+
             if [ -f "$candidate/gradlew" ] && [ -d "$candidate/app" ]; then
               PROJECT_DIR="$candidate"
               break
@@ -83,7 +85,9 @@ jobs:
         shell: bash
         run: |
           set -e
-          find "$PROJECT_DIR/app/build/outputs/apk/debug" -type f -name "*.apk" -print -exec ls -lh {} \;
+          find "$PROJECT_DIR/app/build/outputs/apk/debug" \
+            -type f -name "*.apk" \
+            -print -exec ls -lh {} \;
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

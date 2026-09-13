@@ -1,10 +1,10 @@
-name: Build Elina APK
+name: Build ElinaAI APK
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - "ElinaAi2.0-fixed-v11.zip"
+      - "ElinaAi2.0-fixed-v12.zip"
       - ".github/workflows/build-apk.yml"
 
 permissions:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Debug APK
+    name: Build ElinaAI
     runs-on: ubuntu-latest
 
     steps:
@@ -25,26 +25,28 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Verify ZIP
+      - name: Verify V12 ZIP
         shell: bash
         run: |
           set -e
-          test -f "ElinaAi2.0-fixed-v11.zip"
-          ls -lh "ElinaAi2.0-fixed-v11.zip"
+          test -f "ElinaAi2.0-fixed-v12.zip"
+          echo "V12 ZIP found:"
+          ls -lh "ElinaAi2.0-fixed-v12.zip"
 
-      - name: Extract ZIP
+      - name: Extract V12 ZIP
         shell: bash
         run: |
           set -e
           rm -rf extracted
           mkdir -p extracted
-          unzip -q "ElinaAi2.0-fixed-v11.zip" -d extracted
-          echo "ZIP extracted successfully"
+          unzip -q "ElinaAi2.0-fixed-v12.zip" -d extracted
+          echo "V12 extracted successfully"
 
       - name: Locate Android project
         shell: bash
         run: |
           set -e
+
           PROJECT_DIR=""
 
           while IFS= read -r gradle_file; do
@@ -63,35 +65,71 @@ jobs:
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project: $PROJECT_DIR"
+          echo "Android project found at: $PROJECT_DIR"
 
-      - name: Validate project
+      - name: Validate Android project
         shell: bash
         run: |
           set -e
+
           test -f "$PROJECT_DIR/gradlew"
-          test -d "$PROJECT_DIR/app"
+          test -f "$PROJECT_DIR/app/build.gradle.kts"
+          test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+
           chmod +x "$PROJECT_DIR/gradlew"
-          ls -la "$PROJECT_DIR"
+
+          echo "Android project validation passed"
+
+      - name: Verify Elina VRM
+        shell: bash
+        run: |
+          set -e
+
+          test -f "$PROJECT_DIR/app/src/main/assets/avatar/elina.vrm"
+
+          echo "Elina VRM found:"
+          ls -lh "$PROJECT_DIR/app/src/main/assets/avatar/elina.vrm"
 
       - name: Build Debug APK
         shell: bash
         run: |
           set -e
           cd "$PROJECT_DIR"
-          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Verify APK
+          ./gradlew assembleDebug \
+            --no-daemon \
+            --stacktrace
+
+      - name: Build Release APK
         shell: bash
         run: |
           set -e
+          cd "$PROJECT_DIR"
+
+          ./gradlew assembleRelease \
+            --no-daemon \
+            --stacktrace
+
+      - name: Verify APK files
+        shell: bash
+        run: |
+          set -e
+
+          echo "=== Debug APK ==="
           find "$PROJECT_DIR/app/build/outputs/apk/debug" \
             -type f -name "*.apk" \
             -print -exec ls -lh {} \;
 
-      - name: Upload APK artifact
+          echo "=== Release APK ==="
+          find "$PROJECT_DIR/app/build/outputs/apk/release" \
+            -type f -name "*.apk" \
+            -print -exec ls -lh {} \;
+
+      - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: ElinaAi2.0-debug-apk
-          path: "${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk"
+          name: ElinaAI-v5.2.0-APKs
+          path: |
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
           if-no-files-found: error

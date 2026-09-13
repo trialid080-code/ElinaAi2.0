@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "ElinaAi2.0-fixed-v3.zip"
+      - "ElinaAi2.0-fixed-v4.zip"
       - ".github/workflows/build-apk.yml"
 
 permissions:
@@ -25,15 +25,15 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Verify uploaded ZIP
+      - name: Verify ZIP
         shell: bash
         run: |
           set -e
 
-          ZIP_FILE="ElinaAi2.0-fixed-v3.zip"
+          ZIP_FILE="ElinaAi2.0-fixed-v4.zip"
 
           if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERROR: $ZIP_FILE was not found."
+            echo "ERROR: ZIP file not found!"
             echo "Files in repository:"
             find . -maxdepth 2 -type f -print
             exit 1
@@ -50,10 +50,9 @@ jobs:
           rm -rf extracted
           mkdir -p extracted
 
-          unzip -q "ElinaAi2.0-fixed-v3.zip" -d extracted
+          unzip -q "ElinaAi2.0-fixed-v4.zip" -d extracted
 
-          echo "Extracted project files:"
-          find extracted -maxdepth 3 -type f -print | head -150
+          echo "ZIP extracted successfully."
 
       - name: Locate Android project
         shell: bash
@@ -75,34 +74,30 @@ jobs:
                 -name "settings.gradle" \
                 -o \
                 -name "settings.gradle.kts" \
-              \)
+              )
           )
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Complete Android Gradle project not found."
-            echo "Possible files:"
+            echo "ERROR: Android Gradle project not found."
             find extracted -maxdepth 5 -type f -print
             exit 1
           fi
 
-          echo "Android project found at:"
+          echo "Android project found:"
           echo "$PROJECT_DIR"
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Check Android project
+      - name: Validate project files
         shell: bash
         run: |
           set -e
 
-          echo "Project directory:"
-          echo "$PROJECT_DIR"
-
           test -f "$PROJECT_DIR/gradlew"
           test -d "$PROJECT_DIR/app"
 
+          echo "gradlew and app folder found."
           ls -la "$PROJECT_DIR"
-          ls -la "$PROJECT_DIR/app"
 
       - name: Make Gradle executable
         shell: bash
@@ -113,4 +108,25 @@ jobs:
         shell: bash
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug \
+            --stacktrace \
+            --no-daemon
+
+      - name: Check APK
+        shell: bash
+        run: |
+          set -e
+
+          echo "APK output:"
+          find "$PROJECT_DIR/app/build/outputs" \
+            -type f \
+            -name "*.apk" \
+            -print
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ElinaAi2.0-debug-apk
+          path: |
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

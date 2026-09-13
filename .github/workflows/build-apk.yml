@@ -1,11 +1,11 @@
-name: Build ElinaAI
+name: Build ElinaAI V16
 
 on:
   workflow_dispatch:
 
   push:
     paths:
-      - "ElinaAi2.0-fixed-v15.zip"
+      - "ElinaAi2.0-fixed-v16.zip"
       - ".github/workflows/build-apk.yml"
 
 permissions:
@@ -26,25 +26,25 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Verify V15 ZIP
+      - name: Verify V16 ZIP
         shell: bash
         run: |
           set -e
 
-          echo "Checking V15 ZIP..."
+          ZIP_FILE="ElinaAi2.0-fixed-v16.zip"
 
-          if [ ! -f "ElinaAi2.0-fixed-v15.zip" ]; then
-            echo "ERROR: ElinaAi2.0-fixed-v15.zip not found."
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: $ZIP_FILE not found."
             echo ""
-            echo "Repository contents:"
-            find . -maxdepth 3 -type f -print
+            echo "Repository root:"
+            ls -lah
             exit 1
           fi
 
-          echo "V15 ZIP found:"
-          ls -lh "ElinaAi2.0-fixed-v15.zip"
+          echo "Found:"
+          ls -lh "$ZIP_FILE"
 
-      - name: Extract V15 project
+      - name: Extract V16
         shell: bash
         run: |
           set -e
@@ -52,10 +52,9 @@ jobs:
           rm -rf extracted
           mkdir -p extracted
 
-          echo "Extracting V15..."
-          unzip -q "ElinaAi2.0-fixed-v15.zip" -d extracted
+          unzip -q "ElinaAi2.0-fixed-v16.zip" -d extracted
 
-          echo "Extraction complete."
+          echo "Extracted successfully."
 
       - name: Locate Android project
         shell: bash
@@ -74,47 +73,45 @@ jobs:
           done < <(find extracted -type f -name "gradlew")
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android project not found inside V15 ZIP."
+            echo "ERROR: Android project not found."
             echo ""
-            echo "Extracted files:"
-            find extracted -maxdepth 7 -type f -print
+            echo "Extracted structure:"
+            find extracted -maxdepth 5 -type f -print
             exit 1
           fi
 
-          echo "Android project found:"
-          echo "$PROJECT_DIR"
-
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "Android project:"
+          echo "$PROJECT_DIR"
 
       - name: Validate Android project
         shell: bash
         run: |
           set -e
 
-          echo "Validating Android project..."
-
           test -f "$PROJECT_DIR/gradlew"
           test -d "$PROJECT_DIR/app"
           test -f "$PROJECT_DIR/settings.gradle.kts"
+          test -f "$PROJECT_DIR/build.gradle.kts"
           test -f "$PROJECT_DIR/app/build.gradle.kts"
           test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
 
           chmod +x "$PROJECT_DIR/gradlew"
 
-          echo "Project validation passed."
+          echo "Android project validation passed."
 
       - name: Verify Elina VRM
         shell: bash
         run: |
           set -e
 
-          VRM_FILE="$PROJECT_DIR/app/src/main/assets/avatar/model.vrm"
+          VRM="$PROJECT_DIR/app/src/main/assets/avatar/model.vrm"
 
-          if [ ! -f "$VRM_FILE" ]; then
-            echo "ERROR: Elina VRM not found:"
-            echo "$VRM_FILE"
+          if [ ! -f "$VRM" ]; then
+            echo "ERROR: model.vrm not found."
             echo ""
-            echo "Avatar directory:"
+            echo "Avatar files:"
             find "$PROJECT_DIR/app/src/main/assets/avatar" \
               -maxdepth 2 \
               -type f \
@@ -122,21 +119,21 @@ jobs:
             exit 1
           fi
 
-          echo "Elina VRM found:"
-          ls -lh "$VRM_FILE"
+          echo "VRM found:"
+          ls -lh "$VRM"
 
-      - name: Show Java version
+      - name: Check Java
         shell: bash
         run: |
           java -version
 
-      - name: Show Gradle project
+      - name: Check Gradle wrapper
         shell: bash
         run: |
           cd "$PROJECT_DIR"
 
           echo "Gradle wrapper:"
-          ls -lh ./gradlew
+          ls -lh gradlew
 
           echo ""
           echo "Gradle wrapper properties:"
@@ -149,7 +146,7 @@ jobs:
 
           cd "$PROJECT_DIR"
 
-          echo "Starting ElinaAI release build..."
+          echo "Building ElinaAI release APK..."
 
           ./gradlew assembleRelease \
             --no-daemon \
@@ -163,26 +160,27 @@ jobs:
           APK_DIR="$PROJECT_DIR/app/build/outputs/apk/release"
 
           if [ ! -d "$APK_DIR" ]; then
-            echo "ERROR: Release APK directory does not exist."
+            echo "ERROR: APK output directory not found."
             exit 1
           fi
 
-          COUNT=$(find "$APK_DIR" \
+          APK_COUNT=$(find "$APK_DIR" \
             -maxdepth 1 \
             -type f \
             -name "*.apk" | wc -l)
 
-          echo "APK count: $COUNT"
+          echo "APK count: $APK_COUNT"
 
-          if [ "$COUNT" -ne 1 ]; then
+          if [ "$APK_COUNT" -ne 1 ]; then
             echo "ERROR: Expected exactly ONE APK."
+
             echo ""
-            echo "APK files found:"
+            echo "Files found:"
             find "$APK_DIR" \
               -maxdepth 1 \
               -type f \
-              -name "*.apk" \
               -print
+
             exit 1
           fi
 
@@ -193,12 +191,12 @@ jobs:
             -print -quit)
 
           echo ""
-          echo "APK generated successfully:"
+          echo "APK generated:"
           ls -lh "$APK_FILE"
 
           echo "APK_FILE=$APK_FILE" >> "$GITHUB_ENV"
 
-      - name: Upload release APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ElinaAI-v5.2.0

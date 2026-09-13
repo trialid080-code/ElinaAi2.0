@@ -1,11 +1,7 @@
- name: Build ElinaAI
+name: Build ElinaAI
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "ElinaAi2.0-fixed-v15.zip"
-      - ".github/workflows/build-apk.yml"
 
 permissions:
   contents: read
@@ -29,7 +25,9 @@ jobs:
         shell: bash
         run: |
           set -e
+
           test -f "ElinaAi2.0-fixed-v15.zip"
+
           echo "V15 ZIP:"
           ls -lh "ElinaAi2.0-fixed-v15.zip"
 
@@ -37,8 +35,10 @@ jobs:
         shell: bash
         run: |
           set -e
+
           rm -rf extracted
           mkdir -p extracted
+
           unzip -q "ElinaAi2.0-fixed-v15.zip" -d extracted
 
       - name: Locate Android project
@@ -59,12 +59,14 @@ jobs:
 
           if [ -z "$PROJECT_DIR" ]; then
             echo "ERROR: Android project not found"
-            find extracted -maxdepth 5 -type f -print
+            find extracted -maxdepth 6 -type f -print
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Project: $PROJECT_DIR"
+
+          echo "Android project:"
+          echo "$PROJECT_DIR"
 
       - name: Validate project
         shell: bash
@@ -82,15 +84,16 @@ jobs:
         run: |
           set -e
 
-          test -f "$PROJECT_DIR/app/src/main/assets/avatar/elina.vrm"
+          test -f "$PROJECT_DIR/app/src/main/assets/avatar/model.vrm"
 
           echo "Elina VRM:"
-          ls -lh "$PROJECT_DIR/app/src/main/assets/avatar/elina.vrm"
+          ls -lh "$PROJECT_DIR/app/src/main/assets/avatar/model.vrm"
 
       - name: Build Release APK
         shell: bash
         run: |
           set -e
+
           cd "$PROJECT_DIR"
 
           ./gradlew assembleRelease \
@@ -112,21 +115,4 @@ jobs:
           echo "APK count: $COUNT"
 
           if [ "$COUNT" -ne 1 ]; then
-            echo "ERROR: Expected exactly 1 APK."
-            find "$APK_DIR" -maxdepth 1 -type f -print
-            exit 1
-          fi
-
-          find "$APK_DIR" \
-            -maxdepth 1 \
-            -type f \
-            -name "*.apk" \
-            -print \
-            -exec ls -lh {} \;
-
-      - name: Upload ONE APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ElinaAI-v5.2.0
-          path: "${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/*.apk"
-          if-no-files-found: error
+            echo "ERROR: Expected

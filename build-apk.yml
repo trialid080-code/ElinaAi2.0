@@ -1,0 +1,62 @@
+name: Build APK from ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "*.zip"
+      - ".github/workflows/build-apk.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Find and extract ZIP
+        shell: bash
+        run: |
+          set -e
+
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No ZIP file found"
+            exit 1
+          fi
+
+          mkdir -p extracted
+          unzip -q "$ZIP_FILE" -d extracted
+
+          PROJECT_DIR=$(find extracted -type f -name "settings.gradle*" -printf '%h\n' | head -n 1)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Gradle project not found inside ZIP"
+            find extracted -maxdepth 3 -type f
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project found at: $PROJECT_DIR"
+
+      - name: Make Gradle executable
+        run: chmod +x "$PROJECT_DIR/gradlew"
+
+      - name: Build Debug APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ElinaAi2.0-debug-apk
+          path: |
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk

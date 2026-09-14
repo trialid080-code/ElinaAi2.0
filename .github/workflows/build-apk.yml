@@ -1,11 +1,11 @@
-name: Build ElinaAI V19
+name: Build ElinaAI V20
 
 on:
   workflow_dispatch:
 
   push:
     paths:
-      - "ElinaAi2.0-fixed-v19.zip"
+      - "ElinaAi2.0-fixed-v20.zip"
       - ".github/workflows/build-apk.yml"
 
 permissions:
@@ -26,14 +26,14 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Verify V19 ZIP
+      - name: Verify V20 ZIP
         shell: bash
         run: |
           set -e
 
-          ZIP_FILE="ElinaAi2.0-fixed-v19.zip"
+          ZIP_FILE="ElinaAi2.0-fixed-v20.zip"
 
-          echo "Checking V19 ZIP..."
+          echo "Checking V20 ZIP..."
 
           if [ ! -f "$ZIP_FILE" ]; then
             echo "ERROR: $ZIP_FILE not found."
@@ -43,10 +43,10 @@ jobs:
             exit 1
           fi
 
-          echo "V19 ZIP found:"
+          echo "V20 ZIP found:"
           ls -lh "$ZIP_FILE"
 
-      - name: Extract V19
+      - name: Extract V20
         shell: bash
         run: |
           set -e
@@ -54,8 +54,8 @@ jobs:
           rm -rf extracted
           mkdir -p extracted
 
-          echo "Extracting V19..."
-          unzip -q "ElinaAi2.0-fixed-v19.zip" -d extracted
+          echo "Extracting V20..."
+          unzip -q "ElinaAi2.0-fixed-v20.zip" -d extracted
 
           echo "Extraction complete."
 
@@ -76,7 +76,7 @@ jobs:
           done < <(find extracted -type f -name "gradlew")
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android project not found inside V19 ZIP."
+            echo "ERROR: Android project not found inside V20 ZIP."
             echo ""
             echo "Extracted files:"
             find extracted -maxdepth 7 -type f -print
@@ -104,7 +104,7 @@ jobs:
 
           chmod +x "$PROJECT_DIR/gradlew"
 
-          echo "Android project validation passed."
+          echo "Project validation passed."
 
       - name: Verify Elina VRM
         shell: bash
@@ -133,14 +133,14 @@ jobs:
         run: |
           set -e
 
-          echo "Checking release signing..."
+          echo "Checking release signing configuration..."
 
           if grep -q 'signingConfig = signingConfigs.getByName("debug")' \
             "$PROJECT_DIR/app/build.gradle.kts"; then
 
-            echo "Release APK uses debug signing configuration."
+            echo "Release APK uses debug signing."
           else
-            echo "ERROR: Expected release signing configuration not found."
+            echo "ERROR: Expected release signing configuration was not found."
             echo ""
             grep -n -A15 -B5 "buildTypes" \
               "$PROJECT_DIR/app/build.gradle.kts" || true
@@ -171,7 +171,7 @@ jobs:
 
           cd "$PROJECT_DIR"
 
-          echo "Building ElinaAI V19 release APK..."
+          echo "Building ElinaAI V20 release APK..."
 
           ./gradlew assembleRelease \
             --no-daemon \
@@ -216,11 +216,11 @@ jobs:
             -name "*.apk" \
             -print -quit)
 
-          echo ""
-          echo "APK generated successfully:"
-          ls -lh "$APK_FILE"
-
           echo "APK_FILE=$APK_FILE" >> "$GITHUB_ENV"
+
+          echo ""
+          echo "APK generated:"
+          ls -lh "$APK_FILE"
 
       - name: Verify APK signature
         shell: bash

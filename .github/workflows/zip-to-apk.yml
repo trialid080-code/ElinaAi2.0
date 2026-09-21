@@ -3,15 +3,13 @@ name: Build ElinaAI APK from ZIP
 on:
   workflow_dispatch:
   push:
-    paths:
-      - "**/*.zip"
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: ZIP to signed release APK
+    name: ZIP to Release APK
     runs-on: ubuntu-latest
 
     steps:
@@ -24,52 +22,34 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Verify Android SDK and install required packages
+      - name: Find project ZIP
         shell: bash
         run: |
           set -euo pipefail
 
-          : "${ANDROID_HOME:?ANDROID_HOME is not set on this runner}"
-
-          SDKMANAGER="$(command -v sdkmanager || true)"
-          if [ -z "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1 || true)"
-          fi
-
-          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
-            echo "::error::sdkmanager was not found on the GitHub runner."
-            exit 1
-          fi
-
-          echo "Using sdkmanager: $SDKMANAGER"
-          echo "Android SDK: $ANDROID_HOME"
-
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
-          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" "platforms;android-36" "build-tools;36.0.0"
-
-      - name: Locate project ZIP
-        shell: bash
-        run: |
-          set -euo pipefail
+          echo "Searching repository for Android project ZIP..."
 
           mapfile -t ZIPS < <(
             find "$GITHUB_WORKSPACE" \
               -type f \
               -name "*.zip" \
-              ! -path "$GITHUB_WORKSPACE/.git/*" \
+              -not -path "$GITHUB_WORKSPACE/.git/*" \
+              -not -path "$GITHUB_WORKSPACE/_work/*" \
               | sort
           )
 
           echo "ZIP files found: ${#ZIPS[@]}"
-          printf '  %s\n' "${ZIPS[@]}"
+          printf '%s\n' "${ZIPS[@]}"
 
           if [ "${#ZIPS[@]}" -eq 0 ]; then
-            echo "::error::No project ZIP was found in the repository. Upload the ElinaAI project ZIP first."
+            echo "::error::No ZIP file was found in the repository."
+            echo "::error::Upload the ElinaAI project ZIP and commit it."
             exit 1
           fi
 
           if [ "${#ZIPS[@]}" -gt 1 ]; then
-            echo "::error::More than one ZIP was found. Keep only the project ZIP in the repository or remove the extra ZIP files."
+            echo "::error::More than one ZIP was found."
+            echo "::error::Keep only ONE project ZIP in the repository so the workflow does not guess."
             exit 1
           fi
 
@@ -81,97 +61,221 @@ jobs:
           set -euo pipefail
 
           EXTRACT_DIR="$RUNNER_TEMP/elina-project"
+
           rm -rf "$EXTRACT_DIR"
           mkdir -p "$EXTRACT_DIR"
 
+          echo "Extracting:"
+          echo "$PROJECT_ZIP"
+
           unzip -q "$PROJECT_ZIP" -d "$EXTRACT_DIR"
 
-          mapfile -t WRAPPERS < <(
-            find "$EXTRACT_DIR" \
+          echo "Extraction complete."
+
+          echo "Top-level extracted files:"
+          find "$EXTRACT_DIR" -maxdepth 2 -type f | sort | head -100
+
+          echo "PROJECT_EXTRACT_DIR=$EXTRACT_DIR" >> "$GITHUB_ENV"
+
+      - name: Locate Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t GRADLE_WRAPPERS < <(
+            find "$PROJECT_EXTRACT_DIR" \
               -type f \
               -name "gradlew" \
-              ! -path "*/.gradle/*" \
               | sort
           )
 
-          if [ "${#WRAPPERS[@]}" -eq 0 ]; then
-            echo "::error::The ZIP does not contain a Gradle project (gradlew was not found)."
+          echo "gradlew files found: ${#GRADLE_WRAPPERS[@]}"
+          printf '%s\n' "${GRADLE_WRAPPERS[@]}"
+
+          if [ "${#GRADLE_WRAPPERS[@]}" -eq 0 ]; then
+            echo "::error::No gradlew was found inside the ZIP."
+            echo "::error::The ZIP does not appear to contain an Android Gradle project."
             exit 1
           fi
 
-          if [ "${#WRAPPERS[@]}" -gt 1 ]; then
-            echo "::error::The ZIP contains multiple gradlew files; refusing to guess which project to build."
-            printf '  %s\n' "${WRAPPERS[@]}"
+          if [ "${#GRADLE_WRAPPERS[@]}" -gt 1 ]; then
+            echo "::error::More than one Android Gradle project was found inside the ZIP."
+            echo "::error::Refusing to guess which project should be built."
             exit 1
           fi
 
-          PROJECT_ROOT="$(dirname "${WRAPPERS[0]}")"
-          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
+          PROJECT_DIR="$(dirname "${GRADLE_WRAPPERS[0]}")"
 
-          echo "Project root: $PROJECT_ROOT"
-          find "$PROJECT_ROOT" -maxdepth 2 -type f \( -name "settings.gradle*" -o -name "build.gradle*" -o -name "gradlew" \) -print
+          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ] &&
+             [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
+            echo "::error::Found gradlew at $PROJECT_DIR, but no app Gradle build file was found."
+            exit 1
+          fi
 
-      - name: Verify extracted Android project
+          if [ ! -f "$PROJECT_DIR/settings.gradle.kts" ] &&
+             [ ! -f "$PROJECT_DIR/settings.gradle" ]; then
+            echo "::error::settings.gradle(.kts) is missing from $PROJECT_DIR."
+            exit 1
+          fi
+
+          if [ ! -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml" ]; then
+            echo "::error::AndroidManifest.xml is missing."
+            exit 1
+          fi
+
+          echo "Android project found at:"
+          echo "$PROJECT_DIR"
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Verify VRM asset
         shell: bash
         run: |
           set -euo pipefail
 
-          test -f "$PROJECT_ROOT/gradlew" || {
-            echo "::error::Gradle wrapper is missing from extracted project."
-            exit 1
-          }
+          VRM=""
 
-          test -f "$PROJECT_ROOT/settings.gradle.kts" || {
-            echo "::error::settings.gradle.kts is missing from extracted project."
-            exit 1
-          }
+          if [ -f "$PROJECT_DIR/app/src/main/assets/avatar/elina.vrm" ]; then
+            VRM="$PROJECT_DIR/app/src/main/assets/avatar/elina.vrm"
+          elif [ -f "$PROJECT_DIR/app/src/main/assets/avatar/model.vrm" ]; then
+            VRM="$PROJECT_DIR/app/src/main/assets/avatar/model.vrm"
+          fi
 
-          test -f "$PROJECT_ROOT/app/build.gradle.kts" || {
-            echo "::error::app/build.gradle.kts is missing from extracted project."
-            exit 1
-          }
-
-          test -f "$PROJECT_ROOT/app/src/main/AndroidManifest.xml" || {
-            echo "::error::AndroidManifest.xml is missing from extracted project."
-            exit 1
-          }
-
-          AVATAR_DIR="$PROJECT_ROOT/app/src/main/assets/avatar"
-          mapfile -t VRMS < <(find "$AVATAR_DIR" -maxdepth 1 -type f -iname "*.vrm" | sort)
-
-          if [ "${#VRMS[@]}" -eq 0 ]; then
-            echo "::error::No .vrm avatar file was found under app/src/main/assets/avatar."
+          if [ -z "$VRM" ]; then
+            echo "::error::No VRM avatar file was found."
+            echo "::error::Expected elina.vrm or model.vrm under app/src/main/assets/avatar/"
             exit 1
           fi
 
-          if [ "${#VRMS[@]}" -gt 1 ]; then
-            echo "::error::Multiple .vrm files were found. Refusing to guess which avatar should be packaged."
-            printf '  %s\n' "${VRMS[@]}"
-            exit 1
-          fi
+          echo "VRM found:"
+          ls -lh "$VRM"
 
-          chmod +x "$PROJECT_ROOT/gradlew"
-
-          echo "Android project verified."
-          echo "VRM asset: ${VRMS[0]}"
-          ls -lh "${VRMS[0]}"
-
-      - name: Build signed release APK
+      - name: Locate Android SDK tools
         shell: bash
-        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           set -euo pipefail
-          ./gradlew assembleRelease --no-daemon --stacktrace
+
+          echo "ANDROID_HOME=${ANDROID_HOME:-not-set}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-not-set}"
+
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+
+          if [ -z "$SDK_ROOT" ] || [ ! -d "$SDK_ROOT" ]; then
+            echo "::error::Android SDK was not found on the GitHub runner."
+            exit 1
+          fi
+
+          SDKMANAGER=""
+
+          for candidate in \
+            "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "$SDK_ROOT/cmdline-tools/bin/sdkmanager"
+          do
+            if [ -x "$candidate" ]; then
+              SDKMANAGER="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1 || true)"
+          fi
+
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager could not be located."
+            exit 1
+          fi
+
+          echo "Using SDK:"
+          echo "$SDK_ROOT"
+
+          echo "Using sdkmanager:"
+          echo "$SDKMANAGER"
+
+          echo "SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Accepting Android SDK licenses..."
+
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+
+          echo "Installing required Android SDK packages..."
+
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+      - name: Make Gradle wrapper executable
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          chmod +x "$PROJECT_DIR/gradlew"
+
+          test -x "$PROJECT_DIR/gradlew"
+
+      - name: Show project configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "================ PROJECT ================"
+          echo "$PROJECT_DIR"
+
+          echo "================ GRADLE VERSION ================"
+          cd "$PROJECT_DIR"
+          ./gradlew --version
+
+          echo "================ APP GRADLE FILE ================"
+          if [ -f app/build.gradle.kts ]; then
+            sed -n '1,220p' app/build.gradle.kts
+          else
+            sed -n '1,220p' app/build.gradle
+          fi
+
+      - name: Build release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd "$PROJECT_DIR"
+
+          echo "========================================"
+          echo "Starting ElinaAI release build"
+          echo "========================================"
+
+          ./gradlew assembleRelease \
+            --no-daemon \
+            --stacktrace
 
       - name: Verify exactly one release APK
         shell: bash
         run: |
           set -euo pipefail
 
-          APK_DIR="$PROJECT_ROOT/app/build/outputs/apk/release"
-          mapfile -t APKS < <(find "$APK_DIR" -maxdepth 1 -type f -name "*.apk" | sort)
+          APK_DIR="$PROJECT_DIR/app/build/outputs/apk/release"
 
-          echo "Release APKs found: ${#APKS[@]}"
+          if [ ! -d "$APK_DIR" ]; then
+            echo "::error::Release output directory does not exist:"
+            echo "$APK_DIR"
+            exit 1
+          fi
+
+          mapfile -t APKS < <(
+            find "$APK_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.apk" \
+              | sort
+          )
+
+          echo "APK files found:"
           printf '  %s\n' "${APKS[@]}"
 
           if [ "${#APKS[@]}" -eq 0 ]; then
@@ -180,38 +284,59 @@ jobs:
           fi
 
           if [ "${#APKS[@]}" -gt 1 ]; then
-            echo "::error::More than one release APK was produced; refusing to guess which one to upload."
+            echo "::error::More than one release APK was produced."
+            echo "::error::Refusing to guess which APK should be uploaded."
             exit 1
           fi
 
           APK="${APKS[0]}"
-          echo "APK=$APK" >> "$GITHUB_ENV"
+
+          if [ ! -f "$APK" ]; then
+            echo "::error::APK path is not a regular file."
+            exit 1
+          fi
+
+          echo "========================================"
+          echo "Release APK:"
+          echo "$APK"
+          echo "========================================"
+
           ls -lh "$APK"
 
-      - name: Verify APK signing
+          echo "APK=$APK" >> "$GITHUB_ENV"
+
+      - name: Verify APK signature
         shell: bash
         run: |
           set -euo pipefail
 
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" \
-            -maxdepth 2 \
-            -type f \
-            -name apksigner \
-            | sort -V \
-            | tail -n 1)"
+          APKSIGNER=""
 
-          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
-            echo "::error::apksigner was not found in the installed Android build-tools."
+          mapfile -t SIGNERS < <(
+            find "$SDK_ROOT/build-tools" \
+              -type f \
+              -name "apksigner" \
+              | sort -V
+          )
+
+          if [ "${#SIGNERS[@]}" -eq 0 ]; then
+            echo "::error::apksigner was not found."
             exit 1
           fi
 
+          APKSIGNER="${SIGNERS[-1]}"
+
+          echo "Using:"
+          echo "$APKSIGNER"
+
           "$APKSIGNER" verify --verbose "$APK"
 
-      - name: Upload single APK artifact
+          echo "APK signature verification passed."
+
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: ElinaAI-release-apk
-          path: ${{ env.APK }}
+          path: "${{ env.APK }}"
           if-no-files-found: error
           retention-days: 7
-          
